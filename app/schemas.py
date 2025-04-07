@@ -7,7 +7,7 @@ class QuestionResponse(BaseModel):
 class CareerScores(BaseModel):
     software_development: float = Field(..., alias="Software Development")
     data_science: float = Field(..., alias="Data Science")
-    cybersecurity: float
+    cybersecurity: float = Field(..., alias="Cybersecurity")
     ux_ui_design: float = Field(..., alias="UX/UI Design")
 
     class Config:
@@ -33,8 +33,8 @@ class CriteriaScores(BaseModel):
         validate_by_name = True
 
 class RecommendationResponse(BaseModel):
-    career_scores: CareerScores
-    criteria_scores: CriteriaScores
+    career_scores: CareerScores = Field(..., alias="Career Scores")
+    criteria_scores: CriteriaScores = Field(..., alias="Criteria Scores")
     assessment: str
 
 class RecommendationRequest(BaseModel):

@@ -33,8 +33,8 @@ class CriteriaScores(BaseModel):
         validate_by_name = True
 
 class RecommendationResponse(BaseModel):
-    career_scores: CareerScores = Field(..., alias="Career Scores")
-    criteria_scores: CriteriaScores = Field(..., alias="Criteria Scores")
+    career_scores: CareerScores
+    criteria_scores: CriteriaScores
     assessment: str
 
 class RecommendationRequest(BaseModel):

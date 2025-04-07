@@ -16,7 +16,7 @@ class CareerScores(BaseModel):
 class CriteriaCategoryScores(BaseModel):
     software_development: float = Field(..., alias="Software Development")
     data_science: float = Field(..., alias="Data Science")
-    cybersecurity: float
+    cybersecurity: float = Field(..., alias="Cybersecurity")
     ux_ui_design: float = Field(..., alias="UX/UI Design")
 
     class Config:

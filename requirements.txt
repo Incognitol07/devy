@@ -1,0 +1,6 @@
+# Core FastAPI Stack
+fastapi[all]==0.109.1
+uvicorn[standard]==0.27.1
+python-multipart==0.0.9
+
+azure-ai-inference

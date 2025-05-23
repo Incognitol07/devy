@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ app_name }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>{{ app_name }}</h1>
+            <p>Session ID: <span id="session-id-display">{{ session_id }}</span></p>
+        </div>
+        <div class="chat-messages" id="chat-messages">
+            <!-- Messages will be appended here -->
+            <div class="message devy">
+                <p>Hi! I'm Devy, Devspace's intelligent career advisor chatbot. I'm here to help you discover tech career paths that align with who you are—especially if you're exploring or feeling indecisive. To start, could you please tell me your name?</p>
+                <span class="timestamp">{{ initial_devy_timestamp }}</span>
+            </div>
+        </div>
+        <div class="chat-input">
+            <form id="chat-form">
+                <input type="text" id="message-input" placeholder="Type your message..." autocomplete="off">
+                <button type="submit">Send</button>
+            </form>
+        </div>
+        <div id="assessment-results" class="assessment-results-container">
+            <!-- Final assessment will be displayed here -->
+        </div>
+    </div>
+    <script>
+        // Pass session_id to script.js
+        const currentSessionId = "{{ session_id }}";
+    </script>
+    <script src="/static/script.js"></script>
+</body>
+</html>

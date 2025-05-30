@@ -71,18 +71,19 @@ logger = logging.getLogger(__name__)
 # Add session middleware
 app.add_middleware(SessionMiddleware, secret_key=config.settings.SESSION_SECRET_KEY)
 
+# Note: These paths are relative to the application's root directory
+# For this to work, the application must be started from the project root
+# i.e., run `uvicorn app.main:app` from the directory containing the 'app' and 'static' folders
 # Mount static files
 app.mount(
     "/static",
-    StaticFiles(
-        directory="c:\\Users\\femia\\Desktop\\Code\\Projects\\devspace\\static"  # Corrected path
-    ),
+    StaticFiles(directory="static"),  # Using relative path to the static directory
     name="static",
 )
 
 # Setup Jinja2 templates
 templates = Jinja2Templates(
-    directory="c:\\Users\\femia\\Desktop\\Code\\Projects\\devspace\\app\\templates"  # Corrected path
+    directory="app/templates"  # Using relative path to the templates directory
 )
 
 

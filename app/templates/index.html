@@ -3,35 +3,74 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ app_name }}</title>
+    <title>{{ app_name }} - Career Advisor AI</title>
+    <meta name="description" content="Discover tech career paths that align with your personality, skills, and interests with {{ app_name }}, your AI-powered career advisor.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
+    <!-- Favicon placeholder - replace with actual icon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
 </head>
 <body>
-    <div class="chat-container">
-        <div class="chat-header">
-            <h1>{{ app_name }}</h1>
-            <p>Session ID: <span id="session-id-display">{{ session_id }}</span></p>
-        </div>
-        <div class="chat-messages" id="chat-messages">
-            <!-- Messages will be appended here -->
-            <div class="message devy">
-                <p>Hi! I'm Devy, Devspace's intelligent career advisor chatbot. I'm here to help you discover tech career paths that align with who you are—especially if you're exploring or feeling indecisive. To start, could you please tell me your name?</p>
-                <span class="timestamp">{{ initial_devy_timestamp }}</span>
+    <div class="devy-chat-app">
+        <header class="chat-header">
+            <div class="logo-title">
+                <!-- Logo SVG - uncomment and customize if needed -->
+                <!--
+                <svg class="logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40">
+                    <path fill="#FFFFFF" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
+                </svg>
+                -->
+                <h1>{{ app_name }}</h1>
+            </div>
+            <div class="header-controls">
+                <p class="tagline">Your Intelligent Career Guidance System</p>
+                <button id="new-session-btn" class="new-session-btn" title="Start a new conversation">New Chat</button>
+            </div>
+            <!-- <p class="session-info">Session ID: <span id="session-id-display">{{ session_id }}</span></p> -->
+        </header>
+        
+        <!-- Render previous chat messages -->
+        <section id="chat-messages" class="chat-messages">
+            {% for msg in chat_messages %}
+                <div class="message {{ msg.sender }}">
+                    <div class="message-content">
+                        <p>{{ msg.content }}</p>
+                    </div>
+                    <span class="timestamp">{{ msg.timestamp.strftime('%I:%M %p %b %d, %Y') }}</span>
+                </div>
+            {% endfor %}
+        </section>
+        <footer class="chat-input-area">
+            <form id="chat-form" class="chat-form">
+                <input type="text" id="message-input" placeholder="Ask Devy anything..." autocomplete="off">
+                <button type="submit" aria-label="Send message">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                        <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                    </svg>
+                </button>
+            </form>
+        </footer>
+        
+        <!-- Modal for assessment results -->
+        <div id="assessment-modal" class="assessment-modal">
+            <div class="assessment-modal-content">
+                <div class="assessment-modal-header">
+                    <h3>Your Career Assessment</h3>
+                    <button id="close-assessment" class="close-assessment" aria-label="Close assessment">×</button>
+                </div>
+                <div id="assessment-results" class="assessment-results-container" aria-live="polite">
+                    <!-- Final assessment will be displayed here -->
+                </div>
             </div>
         </div>
-        <div class="chat-input">
-            <form id="chat-form">
-                <input type="text" id="message-input" placeholder="Type your message..." autocomplete="off">
-                <button type="submit">Send</button>
-            </form>
-        </div>
-        <div id="assessment-results" class="assessment-results-container">
-            <!-- Final assessment will be displayed here -->
-        </div>
-    </div>
-    <script>
-        // Pass session_id to script.js
+    </div>    <script>
         const currentSessionId = "{{ session_id }}";
+        // const initialDevyMessage = "Hi! I'm Devy..."; // This is now hardcoded in HTML for initial display
+        const initialDevyTimestamp = "{{ initial_devy_timestamp }}";
+        const hasExistingAssessment = {{ 'true' if has_assessment else 'false' }};
+        const existingAssessmentData = {% if assessment_data %}{{ assessment_data | safe }}{% else %}null{% endif %};
     </script>
     <script src="/static/script.js"></script>
 </body>

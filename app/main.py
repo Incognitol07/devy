@@ -8,7 +8,8 @@ from sqlalchemy import desc  # Added for ordering chat messages
 from starlette.middleware.sessions import SessionMiddleware
 import uuid
 import json
-from typing import List, Dict, Any
+import logging  # ADDED: For detailed logging
+from typing import List, Dict, Any  # Ensure Any is imported if not already
 
 # OpenAI SDK for GitHub AI Inference
 import openai  # MODIFIED: Changed from azure.ai.inference
@@ -63,6 +64,10 @@ else:
 # Initialize FastAPI app
 app = FastAPI(title=config.settings.APP_NAME)
 
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Add session middleware
 app.add_middleware(SessionMiddleware, secret_key=config.settings.SESSION_SECRET_KEY)
 
@@ -94,54 +99,53 @@ async def on_startup():
 
 @app.get("/", response_class=HTMLResponse)
 async def get_chat_page(request: Request, db: Session = Depends(get_db)):
+    # Ensure session_id exists in the session
     session_id = request.session.get("session_id")
-
     if not session_id:
         session_id = str(uuid.uuid4())
         request.session["session_id"] = session_id
-        new_session_record = models.Session(
-            id=session_id,
-            context_data={"user_profile": {}},  # Initialize with empty user profile
-        )
-        db.add(new_session_record)
-        db.commit()
-        db.refresh(new_session_record)
-        print(f"New session created in DB: {session_id}")
+        logger.info(f"[/] Created new session ID: {session_id}")
     else:
-        db_session = (
-            db.query(models.Session).filter(models.Session.id == session_id).first()
-        )
-        if not db_session:
-            new_session_record = models.Session(
-                id=session_id, context_data={"user_profile": {}}
-            )
-            db.add(new_session_record)
-            db.commit()
-            db.refresh(new_session_record)
-            print(f"Re-initialized session in DB from cookie: {session_id}")
-        elif (
-            db_session.context_data is None
-            or "user_profile" not in db_session.context_data
-        ):
-            db_session.context_data = {"user_profile": {}}
-            db.commit()
-            db.refresh(db_session)
-            print(f"Initialized context_data for existing session {session_id}")
-        else:
-            print(
-                f"Existing session {session_id} confirmed in DB, context_keys: {list(db_session.context_data.keys())}"
-            )
+        logger.info(f"[/] Using existing session ID: {session_id}")
 
+    # Load previous chat messages for this session
+    chat_messages = (
+        db.query(models.ChatMessage)
+        .filter(models.ChatMessage.session_id == session_id)
+        .order_by(models.ChatMessage.timestamp)
+        .all()
+    )
+
+    # Check if an assessment exists for this session
+    existing_assessment = (
+        db.query(models.Assessment)
+        .filter(models.Assessment.session_id == session_id)
+        .first()
+    )
+
+    has_assessment = False
+    assessment_data = None
+
+    if existing_assessment:
+        logger.info(f"[/] Found existing assessment for session {session_id}")
+        has_assessment = True
+        assessment_data = existing_assessment.assessment_data
+    else:
+        logger.info(f"[/] No existing assessment found for session {session_id}")
+
+    # Render template with chat messages and assessment data included
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
             "session_id": session_id,
             "app_name": config.settings.APP_NAME,
-            # Pass current UTC time for the initial Devy message in template
             "initial_devy_timestamp": datetime.now(timezone.utc).strftime(
                 "%H:%M %p UTC"
             ),
+            "chat_messages": chat_messages,
+            "has_assessment": has_assessment,
+            "assessment_data": json.dumps(assessment_data) if assessment_data else None,
         },
     )
 
@@ -151,7 +155,11 @@ async def handle_chat_message(
     request: Request, user_message: str = Form(...), db: Session = Depends(get_db)
 ):
     session_id = request.session.get("session_id")
+    logger.info(
+        f"[/chat] Session ID: {session_id}, User message: {user_message[:50]}..."
+    )  # ADDED
     if not session_id:
+        logger.error("[/chat] Session ID missing.")  # ADDED
         raise HTTPException(
             status_code=400, detail="Session ID missing. Please refresh the page."
         )
@@ -160,12 +168,18 @@ async def handle_chat_message(
         db.query(models.Session).filter(models.Session.id == session_id).first()
     )
     if not db_session:
+        logger.warning(
+            f"[/chat] Session {session_id} not found in DB, creating new one."
+        )  # ADDED
         db_session = models.Session(id=session_id, context_data={"user_profile": {}})
         db.add(db_session)
         # db.commit() # Commit will happen later
         print(f"Session {session_id} created on POST /chat as it was missing.")
 
     if db_session.context_data is None or "user_profile" not in db_session.context_data:
+        logger.info(
+            f"[/chat] Initializing user_profile in context_data for session {session_id}"
+        )  # ADDED
         db_session.context_data = {"user_profile": {}}
         # db.commit() # Commit will happen later
         print(
@@ -173,6 +187,9 @@ async def handle_chat_message(
         )
 
     user_profile = db_session.context_data.get("user_profile", {})
+    logger.info(
+        f"[/chat] User profile for session {session_id}: {user_profile}"
+    )  # ADDED
 
     db_user_msg = models.ChatMessage(
         session_id=session_id, sender="user", content=user_message
@@ -185,6 +202,7 @@ async def handle_chat_message(
     recommendation_payload = None
 
     if not ai_client:
+        logger.error("[/chat] AI client not initialized.")  # ADDED
         print("AI client not initialized. Returning generic error message.")
     else:
         try:
@@ -202,7 +220,13 @@ Engage in a natural, empathetic conversation to gather information about the use
 Keep track of the information provided by the user throughout the conversation.
 The user's profile data known so far is: {json.dumps(user_profile)}
 
-When you believe you have a comprehensive understanding of the user and enough information to make a well-rounded assessment, you MUST respond ONLY with a JSON object matching the following structure. Do not include any other text or explanations outside this JSON object if you are providing the assessment:
+When you believe you have a comprehensive understanding of the user and enough information to make a well-rounded assessment:
+1. You MAY optionally inform the user that you are now ready to generate their assessment (e.g., "I think I have enough information now, let me prepare your assessment.").
+2. After such an optional statement, or if you choose to proceed directly, your VERY NEXT response MUST be ONLY the JSON object detailed below.
+3. Do not include any other text, explanations, or conversational filler outside this JSON object when providing the assessment.
+4. If the user asks a question (e.g., "What did you find?", "Are you sure?", "Well, what did you learn?") immediately after you've indicated readiness or when you are about to provide the assessment, proceed to output the JSON assessment as your response to that question. Do not re-engage in conversation at this point; deliver the assessment as promised.
+
+The JSON object structure is as follows:
 {{
   "user_summary": {{
     "name": "string",
@@ -225,13 +249,11 @@ When you believe you have a comprehensive understanding of the user and enough i
   "overall_assessment_notes": "string"
 }}
 
-If you are not providing the final JSON assessment, continue the conversation by asking relevant questions or providing supportive feedback. Do not output any JSON unless it's the final assessment.
+If you are NOT yet at the stage of providing the final JSON assessment, continue the conversation by asking relevant questions or providing supportive feedback. Do not output any JSON unless it's the final assessment.
 Your first question, if no prior conversation and no name in profile, should be to ask for the user's name.
 """
-
-            # MODIFIED: Message format for OpenAI SDK
             messages_for_ai = [{"role": "system", "content": system_prompt_content}]
-
+            # ... (chat history loading logic remains the same)
             chat_history = (
                 db.query(models.ChatMessage)
                 .filter(models.ChatMessage.session_id == session_id)
@@ -242,67 +264,78 @@ Your first question, if no prior conversation and no name in profile, should be 
             chat_history.reverse()
 
             for msg in chat_history:
-                if (
-                    msg.id == db_user_msg.id
-                ):  # Exclude the current user message we just added
+                if msg.id == db_user_msg.id:
                     continue
                 if msg.sender == "user":
-                    messages_for_ai.append(
-                        {"role": "user", "content": msg.content}
-                    )  # MODIFIED
+                    messages_for_ai.append({"role": "user", "content": msg.content})
                 elif msg.sender == "devy":
                     try:
-                        # Avoid re-feeding a previous JSON assessment as an assistant message
                         json.loads(msg.content)
-                        # If it's JSON, assume it might be an old assessment and skip it.
-                        # A more robust way would be to flag assessment messages in DB.
                     except json.JSONDecodeError:
                         messages_for_ai.append(
                             {"role": "assistant", "content": msg.content}
-                        )  # MODIFIED
+                        )
 
-            # Add the current user's message
-            messages_for_ai.append(
-                {"role": "user", "content": user_message}
-            )  # MODIFIED
+            messages_for_ai.append({"role": "user", "content": user_message})
+            logger.info(
+                f"[/chat] Messages for AI: {json.dumps(messages_for_ai, indent=2)[:500]}..."
+            )  # ADDED
 
-            # MODIFIED: API call for OpenAI SDK
             ai_response = ai_client.chat.completions.create(
-                model=github_ai_model_name,  # Use the model name from config
+                model=github_ai_model_name,
                 messages=messages_for_ai,
-                # temperature=1.0, # Optional parameters
-                # top_p=1.0,
-                # max_tokens=1000
             )
             raw_ai_response_content = (
                 ai_response.choices[0].message.content
                 if ai_response.choices and ai_response.choices[0].message
                 else ""
             )
+            logger.info(
+                f"[/chat] Raw AI response content: {raw_ai_response_content}"
+            )  # ADDED
 
-            # Process AI Response (logic remains largely the same)
             try:
                 parsed_assessment = json.loads(raw_ai_response_content)
+                logger.info(
+                    f"[/chat] Successfully parsed AI response as JSON: {parsed_assessment}"
+                )  # ADDED
                 recommendation = schemas.RecommendationResponse.model_validate(
                     parsed_assessment
                 )
-                devy_response_content = f"Thank you! I've completed your career profile assessment. Here are the results:"
+                logger.info(
+                    f"[/chat] Successfully validated JSON against RecommendationResponse schema: {recommendation}"
+                )  # ADDED
+
+                devy_response_content = (
+                    "Here is your personalized career assessment:"  # MODIFIED
+                )
                 recommendation_payload = recommendation.model_dump()
                 is_assessment_complete = True
+                logger.info(
+                    f"[/chat] Assessment complete. Payload: {recommendation_payload}"
+                )  # ADDED
 
                 user_summary = recommendation.user_summary
                 if user_summary.name:
+                    logger.info(
+                        f"[/chat] Assessment contains user name: {user_summary.name}. Attempting to find/create user."
+                    )  # ADDED
                     db_user = (
                         db.query(models.User)
                         .filter(models.User.name == user_summary.name)
                         .first()
                     )
                     if not db_user:
+                        logger.info(
+                            f"[/chat] User {user_summary.name} not found, creating new user."
+                        )  # ADDED
                         db_user = models.User(name=user_summary.name)
                         db.add(db_user)
-                        # db.flush() # Will be flushed with commit
+                    else:
+                        logger.info(
+                            f"[/chat] Found existing user: {db_user.id} - {db_user.name}"
+                        )  # ADDED
 
-                    # Update user fields
                     db_user.age = (
                         int(user_summary.age)
                         if user_summary.age and user_summary.age.isdigit()
@@ -313,87 +346,149 @@ Your first question, if no prior conversation and no name in profile, should be 
                     db_user.top_subjects = user_summary.top_subjects
                     db_user.subject_aspects = user_summary.subject_aspects
                     db_user.interests_dreams = user_summary.interests_dreams
+                    logger.info(
+                        f"[/chat] Updated db_user fields for {user_summary.name}"
+                    )  # ADDED
 
-                    if (
-                        db_user.id is None
-                    ):  # If new user, flush to get ID before creating assessment
+                    if db_user.id is None:
                         db.flush()
+                        logger.info(
+                            f"[/chat] Flushed new user {user_summary.name} to get ID: {db_user.id}"
+                        )  # ADDED
 
                     if db_user.id:
                         db_session.user_id = db_user.id
+                        logger.info(
+                            f"[/chat] Linked session {session_id} to user_id {db_user.id}"
+                        )  # ADDED
                         db_assessment = models.Assessment(
                             session_id=session_id,
                             user_id=db_user.id,
                             assessment_data=recommendation.model_dump(),
                         )
                         db.add(db_assessment)
+                        logger.info(
+                            f"[/chat] Assessment for user {db_user.id} added to session."
+                        )  # ADDED
                     else:
-                        print(
-                            f"Could not save assessment as user ID for {user_summary.name} is missing after flush."
-                        )
+                        logger.error(
+                            f"[/chat] Could not save assessment as user ID for {user_summary.name} is missing after flush."
+                        )  # ADDED
                 else:
-                    print(
-                        "User name missing in assessment summary, cannot update User or save Assessment."
-                    )
-            except (json.JSONDecodeError, ValueError) as e:
-                devy_response_content = raw_ai_response_content
+                    logger.warning(
+                        "[/chat] User name missing in assessment summary, cannot update User or save Assessment."
+                    )  # ADDED
+            except (
+                json.JSONDecodeError,
+                ValueError,
+            ) as e:  # ValueError includes pydantic.ValidationError
+                logger.error(
+                    f"[/chat] Failed to parse AI response as JSON or validate schema: {e}. Raw response was: {raw_ai_response_content}"
+                )  # MODIFIED
+                devy_response_content = (
+                    raw_ai_response_content  # Keep sending raw content if not JSON
+                )
                 is_assessment_complete = False
                 recommendation_payload = None
 
-            # Update user_profile in session context if AI provided new info (this is complex)
-            # For now, user_profile is mainly passed to AI. AI uses history.
-            # The definitive update to user_profile in context_data could happen if AI explicitly states updates,
-            # or we parse it from conversation. Simpler: rely on final assessment's user_summary.
-            # If name was learned and user created/linked:
             if db_session.user_id and not user_profile.get("name"):
                 linked_user = (
                     db.query(models.User)
                     .filter(models.User.id == db_session.user_id)
                     .first()
                 )
-                if (
-                    linked_user and linked_user.name
-                ):  # Ensure linked_user and name exist
+                if linked_user and linked_user.name:
                     user_profile["name"] = linked_user.name
                     db_session.context_data["user_profile"] = user_profile
-                    # Flag context_data as modified for SQLAlchemy
                     from sqlalchemy.orm.attributes import flag_modified
 
                     flag_modified(db_session, "context_data")
+                    logger.info(
+                        f"[/chat] Updated session context_data with user name: {linked_user.name}"
+                    )  # ADDED
 
-        # MODIFIED: Specific error handling for OpenAI SDK
         except openai.APIStatusError as e:
+            logger.error(
+                f"OpenAI API Status Error: {e.status_code} - {e.message}"
+            )  # MODIFIED
             print(f"OpenAI API Status Error: {e.status_code} - {e.message}")
             devy_response_content = f"AI Service Error ({e.status_code}): {e.message if e.message else 'Status error from AI service.'}"
         except openai.APIError as e:
+            logger.error(f"OpenAI API Error: {e}")  # MODIFIED
             print(f"OpenAI API Error: {e}")
             devy_response_content = f"AI Service Error: {e.message if hasattr(e, 'message') and e.message else 'An unexpected API error occurred.'}"
         except Exception as e:
+            logger.error(
+                f"Error during AI interaction or response processing: {e}",
+                exc_info=True,
+            )  # MODIFIED with exc_info
             print(f"Error during AI interaction or response processing: {e}")
-            # devy_response_content is already set to a fallback (or overridden by more specific AI errors)
 
     db_devy_msg = models.ChatMessage(
         session_id=session_id, sender="devy", content=devy_response_content
     )
     db.add(db_devy_msg)
 
-    db.commit()
-    # Refresh objects after commit
-    db.refresh(db_user_msg)
-    db.refresh(db_devy_msg)
-    db.refresh(db_session)
-    if (
-        "db_user" in locals() and db_user and db_user.id
-    ):  # Check if db_user was defined and has an id
-        db.refresh(db_user)
-    if (
-        "db_assessment" in locals() and db_assessment and db_assessment.id
-    ):  # Check if db_assessment was defined and has an id
-        db.refresh(db_assessment)
+    try:  # ADDED try-except for commit
+        db.commit()
+        logger.info(
+            f"[/chat] Database commit successful for session {session_id}."
+        )  # ADDED
+    except Exception as e:
+        logger.error(
+            f"[/chat] Database commit failed for session {session_id}: {e}",
+            exc_info=True,
+        )  # ADDED
+        db.rollback()
+        # Potentially re-raise or handle gracefully
+        # For now, the function will return the potentially stale/error devy_response_content
 
+    # Refresh objects after commit (if successful)
+    # ... (refresh logic remains the same)
+    if db.is_active:  # ADDED check before refresh
+        db.refresh(db_user_msg)
+        db.refresh(db_devy_msg)
+        db.refresh(db_session)
+        if "db_user" in locals() and db_user and db_user.id:
+            db.refresh(db_user)
+        if "db_assessment" in locals() and db_assessment and db_assessment.id:
+            db.refresh(db_assessment)
+
+    logger.info(
+        f"[/chat] Returning ChatOutput: is_assessment_complete={is_assessment_complete}, payload_present={recommendation_payload is not None}"
+    )  # ADDED
     return schemas.ChatOutput(
         devy_response=devy_response_content,
         session_id=session_id,
         is_assessment_complete=is_assessment_complete,
         recommendation_payload=recommendation_payload,
     )
+
+
+@app.post("/new-session")
+async def create_new_session(request: Request, db: Session = Depends(get_db)):
+    """Create a new session and return its ID."""
+    logger.info(f"[/new-session] Creating new session")
+
+    # Create a new session ID
+    new_session_id = str(uuid.uuid4())
+
+    # Set it in the user's session
+    request.session["session_id"] = new_session_id
+
+    # Create a database entry for the new session
+    db_session = models.Session(id=new_session_id, context_data={"user_profile": {}})
+
+    try:
+        db.add(db_session)
+        db.commit()
+        logger.info(
+            f"[/new-session] Successfully created new session with ID: {new_session_id}"
+        )
+        return {"success": True, "session_id": new_session_id}
+    except Exception as e:
+        logger.error(f"[/new-session] Error creating new session: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create new session: {str(e)}"
+        )

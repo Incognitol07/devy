@@ -72,8 +72,8 @@ An intelligent AI-powered career recommendation system that helps users discover
 1. **Clone the repository**
 
    ```bash
-   git clone <repository-url>
-   cd devspace
+   git clone https://github.com/Incognitol07/devy.git
+   cd devy
    ```
 
 2. **Create virtual environment**
@@ -313,7 +313,7 @@ We welcome contributions to improve Devy! Please follow these guidelines:
 1. **Fork the repository**
 
    ```bash
-   git fork <repository-url>
+   git fork https://github.com/Incognitol07/devy.git
    ```
 
 2. **Create feature branch**

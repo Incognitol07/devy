@@ -1,6 +1,8 @@
 # Devy Career Advisor
 
-AI-powered career recommendation system that helps users discover their ideal tech career path through natural conversation.
+**Skip the career confusion and find your tech path with confidence.** Have a natural conversation and walk away knowing exactly which tech career lights you up — no generic quizzes, no overwhelming research, just clear direction.
+
+AI-powered career recommendations through natural conversation that help you discover your ideal tech path effortlessly.
 
 ## Features
 
